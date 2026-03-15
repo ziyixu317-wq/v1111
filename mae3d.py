@@ -34,7 +34,7 @@ class MAE3D(nn.Module):
         self.decoder = nn.Sequential(
             nn.Conv3d(enc_feat_dim, enc_feat_dim, kernel_size=3, padding=1),
             nn.GELU(),
-            nn.Conv3d(enc_feat_dim, patch_size[0] * patch_size[1] * patch_size[2] * in_chans, kernel_size=1)
+            nn.Conv3d(enc_feat_dim, in_chans, kernel_size=1)
         )
         
         torch.nn.init.normal_(self.mask_token, std=.02)
