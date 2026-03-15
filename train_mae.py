@@ -219,6 +219,8 @@ def main():
         total_train_loss, total_mse, total_div = 0.0, 0.0, 0.0
         
         for batch_idx, volume in enumerate(train_loader):
+            if len(volume.shape) == 6:
+                volume = volume.view(-1, *volume.shape[2:])
             volume = volume.to(device)
             optimizer.zero_grad()
             
@@ -244,6 +246,8 @@ def main():
         total_test_loss = 0.0
         with torch.no_grad():
             for volume in test_loader:
+                if len(volume.shape) == 6:
+                    volume = volume.view(-1, *volume.shape[2:])
                 volume = volume.to(device)
                 x_rec, mask, _, _, _ = pipeline(volume)
                 loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
