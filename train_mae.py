@@ -95,16 +95,14 @@ class TensorTimeSequenceDataset(Dataset):
         return seq
 
 def main():
-    parser = argparse.ArgumentParser(description="Pre-train 3D MAE on a single VTI sequence tensor.")
-    parser.add_argument("vti_file", type=str, help="Path to the single .vti file containing 151 timesteps")
+    parser = argparse.ArgumentParser(description="Pre-train 3D MAE on a VTI directory sequence.")
+    parser.add_argument("--data_dir", type=str, required=True, help="Path to the directory containing .vti files")
     parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
     parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--mask_ratio", type=float, default=0.75, help="Masking ratio (0.0 to 1.0)")
     parser.add_argument("--lambda_div", type=float, default=0.1, help="Weight for Divergence penalty loss")
     parser.add_argument("--time_window", type=int, default=1, help="Time window size (set to 1 for 3D spatial MAE, >1 for Spatio-temporal)")
-    parser.add_argument("--n_train", type=int, default=100, help="Number of timesteps to use for training")
-    parser.add_argument("--n_test", type=int, default=51, help="Number of timesteps to use for testing")
     parser.add_argument("--vector_name", type=str, default=None, help="Name of vector array in VTI")
     parser.add_argument("--save_dir", type=str, default="./checkpoints", help="Directory to save checkpoints")
     
