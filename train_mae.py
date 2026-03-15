@@ -260,7 +260,7 @@ def main():
               f"Train Loss: {avg_train_loss:.4f} (MSE: {total_mse/len(train_loader):.4f}, Div: {total_div/len(train_loader):.4f}) | "
               f"Test Loss: {avg_test_loss:.4f}")
               
-        # Save Checkpoint
+        # Save Checkpoint and Visualization
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
             ckpt_path = os.path.join(args.save_dir, "mae_best_checkpoint.pth")
@@ -271,6 +271,47 @@ def main():
                 'loss': best_test_loss,
             }, ckpt_path)
             print(f"  -> Saved new best checkpoint to {ckpt_path}")
+            
+        # Optional: Save a visual reconstruction of the FIRST batch in test_loader
+        # We save it every 10 epochs or at the very last epoch to save disk space
+        if epoch % 10 == 0 or epoch == args.epochs:
+            # We already have the last `x_rec` and `volume` from the test loop
+            # x_rec shape: (B, 3, D, H, W)
+            # Take the first sample in the batch
+            sample_rec = x_rec[0].cpu().numpy() # (3, D, H, W)
+            sample_true = volume[0].cpu().numpy() # (3, D, H, W)
+            
+            # Reverse normalization if standard deviation/mean was stored
+            # (Assuming test_dataset has mean and std accessible)
+            try:
+                mean = test_dataset.mean.squeeze(0).squeeze(0) # (1, 3, 1, 1, 1) to (3, 1, 1) usually, or 0.0
+                std = test_dataset.std.squeeze(0).squeeze(0)
+                sample_rec = sample_rec * std + mean
+                sample_true = sample_true * std + mean
+            except:
+                pass # If it fails, just save the normalized version
+            
+            # Save using PyVista (We create an ImageData block)
+            vis_mesh = pv.ImageData()
+            vis_mesh.dimensions = (W, H, D) # VTK uses (x, y, z)
+            
+            # Flatten with order='C' (Z-fastest locally, matching VTK x-fastest spatial array interpretation usually)
+            u_rec = sample_rec[0].flatten(order='C')
+            v_rec = sample_rec[1].flatten(order='C')
+            w_rec = sample_rec[2].flatten(order='C')
+            vec_rec = np.stack([u_rec, v_rec, w_rec], axis=1)
+            
+            u_true = sample_true[0].flatten(order='C')
+            v_true = sample_true[1].flatten(order='C')
+            w_true = sample_true[2].flatten(order='C')
+            vec_true = np.stack([u_true, v_true, w_true], axis=1)
+            
+            vis_mesh.point_data["Reconstructed_Velocity"] = vec_rec
+            vis_mesh.point_data["GroundTruth_Velocity"] = vec_true
+            
+            out_vti = os.path.join(args.save_dir, f"epoch_{epoch}_test_reconstruction.vti")
+            vis_mesh.save(out_vti)
+            print(f"  -> Saved reconstructed VTI for visual inspection to {out_vti}")
 
     print("\nPre-training complete!")
     print("==========================================")
