@@ -174,7 +174,21 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
     
     sample_batch = next(iter(train_loader))
-    _, C, D, H, W = sample_batch.shape
+    
+    # Depending on 'time_window', shape might be (B, C, D, H, W) or (B, T, C, D, H, W)
+    if len(sample_batch.shape) == 5:
+        B, C, D, H, W = sample_batch.shape
+    elif len(sample_batch.shape) == 6:
+        B, T, C, D, H, W = sample_batch.shape
+        # For MAE3D currently designed for (B, C, D, H, W), we might need to fold T into C or batch it
+        # Assuming spatial Swin3D without T, we take the sequence and fold T into B
+        # sample_batch = sample_batch.view(B*T, C, D, H, W)
+        print(f"Warning: 6D tensor loaded. Taking only the first timestep for demonstration.")
+        sample_batch = sample_batch[:, 0]
+        B, C, D, H, W = sample_batch.shape
+    else:
+        raise ValueError(f"Unexpected batch shape: {sample_batch.shape}")
+        
     print(f"Data shape loaded: {C}x{D}x{H}x{W} (C x D x H x W)")
 
     # 2. Model Initialization
