@@ -8,6 +8,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run Flow Vortex Net on a single .vti file")
     parser.add_argument("vti_file", type=str, help="Path to the input .vti file")
     parser.add_argument("--save_mesh", action="store_true", help="Save output variables back to a new VTI file")
+    parser.add_argument("--checkpoint", type=str, default="./checkpoints/mae_best_checkpoint.pth", help="Path to pre-trained MAE checkpoint")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -20,8 +21,12 @@ def main():
         tensor_input = load_single_vti_as_tensor(args.vti_file).to(device)
     except Exception as e:
         print(f"Error loading VTI file: {e}")
-        print("提示: 请检查 .vti 文件中是否包含纯量 u, v, w。如果速度场被存储为了单个 Vector 数组 (如 'velocity')，请修改 data_loader 调用方式。")
+        print("提示: 确保输入是一组合法的结构化网格张量")
         return
+        
+    # 添加一个假的 Batch 维度
+    if len(tensor_input.shape) == 4:
+        tensor_input = tensor_input.unsqueeze(0)
         
     print(f"Input tensor shape: {tensor_input.shape} (B, C, D, H, W)")
     
@@ -29,10 +34,31 @@ def main():
     # 这里我们为了演示直接传入，如果尺寸报错，您可能需要 Resize 或 Padding
 
     # 2. 初始化模型
-    print("Initializing Model Pipeline...")
-    # 由于真实的 VTI 尺寸可能很大，这里我们仅为了演示通过前向传播
-    # 注意：如果显存不足或尺寸不被 swin transformer 支持，请在这里加入对 tensor_input 的插值/降采样
-    pipeline = FlowVortexPipeline(use_mae=False) # 如果只是为了提取特征(解耦和Q准则)，我们可以关闭基于MAE的重建来节省显存和计算
+    print("Initializing Model Pipeline for Inference...")
+    # 当在下游推理时，我们依然使用 MAE 但将 mask_ratio 设为 0 (完全可见，纯特征提取和重建)
+    import os
+    use_mae = os.path.exists(args.checkpoint)
+    
+    pipeline = FlowVortexPipeline(
+        use_mae=use_mae,
+        patch_size=(2, 4, 4),
+        in_chans=3,
+        embed_dim=48, 
+        depths=[2, 2, 6, 2], 
+        num_heads=[3, 6, 12, 24], 
+        window_size=(4, 4, 4),
+        mask_ratio=0.0 # 推理阶段不屏蔽任何像素！
+    )
+    
+    if use_mae:
+        print(f"Loading pre-trained checkpoint from: {args.checkpoint}")
+        try:
+            checkpoint = torch.load(args.checkpoint, map_location=device)
+            pipeline.load_state_dict(checkpoint['model_state_dict'])
+            print("  -> Checkpoint loaded successfully!")
+        except Exception as e:
+            print(f"  -> Failed to load checkpoint: {e}")
+            
     pipeline = pipeline.to(device)
     pipeline.eval()
     
