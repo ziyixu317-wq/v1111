@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 
 def velocity_gradient_tensor(u, dx=1.0, dy=1.0, dz=1.0):
-    """
+    r"""
     u: (B, 3, D, H, W)
     Returns:
         grad_u: (B, 3, 3, D, H, W)

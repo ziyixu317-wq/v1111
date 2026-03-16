@@ -16,7 +16,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
-from pipeline import FlowVortexPipeline
+from pipeline import FlowVortexFusionPipeline
 from mae3d import pi_mae_loss
 from data_loader import read_single_vti, read_vti_with_vector
 
