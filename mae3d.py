@@ -14,7 +14,7 @@ class MAE3D_Fusion(nn.Module):
     def __init__(self, patch_size=(2, 4, 4), in_chans=3, out_chans=1,
                  embed_dim=48, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24], 
                  window_size=(4, 4, 4), mask_ratio=0.75, mode='pretrain',
-                 use_helmholtz=True):
+                 use_helmholtz=False):
         super().__init__()
         self.patch_size = patch_size
         self.in_chans = in_chans
@@ -75,13 +75,15 @@ class MAE3D_Fusion(nn.Module):
             feat = self.encoder.pos_drop(x_embed)
             mask = None
             
-        # --- 2. Encoder Path (Hierarchical) ---
-        # Note: SwinTransformer3D.forward returns (norm_x, outs)
-        _, outs = self.encoder(x_input_field) # Use full field for features or masked? 
-        # Paper uses masked input for pre-training encoder
-        if self.mode == 'pretrain':
-            # Re-run encoder with masked input to get skip connections
-            _, outs = self._encoder_forward_masked(feat)
+        # --- 2. Encoder Path (Manual Loop for Skips) ---
+        outs = []
+        curr_feat = feat
+        for layer in self.encoder.layers:
+            # Layer returns (stage_output, downsampled_output)
+            skip, curr_feat = layer(curr_feat)
+            outs.append(skip)
+        
+        # outs[0]: Stage 1, outs[1]: Stage 2, outs[2]: Stage 3, outs[3]: Stage 4
         
         # --- 3. U-Net Decoder Path ---
         # Stage 3 -> 2

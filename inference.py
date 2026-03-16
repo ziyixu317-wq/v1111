@@ -47,7 +47,9 @@ def main():
     # 3. Inference Loop
     for f in files:
         print(f"Processing: {os.path.basename(f)}")
-        tensor_input = load_single_vti_as_tensor(f).to(device)
+        tensor_input, spacing_tensor = load_single_vti_as_tensor(f)
+        tensor_input = tensor_input.to(device)
+        dx, dy, dz = spacing_tensor.cpu().numpy()
         
         # Apply Normalization
         tensor_input_norm = (tensor_input - mean) / std
@@ -62,22 +64,28 @@ def main():
                 out_v = x_rec.squeeze(0).cpu().numpy()
                 out_ivd = ivd_pred.squeeze(0).cpu().numpy()
             else:
-                seg_mask = pipeline(tensor_input)
+                seg_mask = pipeline(tensor_input_norm)
                 out_ivd = seg_mask.squeeze(0).squeeze(0).cpu().numpy()
                 out_v = None
 
         # 4. Save
         mesh = pv.read(f)
         if out_v is not None:
+            # Reverse normalization for visual velocity saving
+            v_mean = mean.cpu().numpy().reshape(3, 1, 1, 1)
+            v_std = std.cpu().numpy().reshape(3, 1, 1, 1)
+            out_v = out_v * v_std + v_mean
+            
             u, v, w = out_v[0].flatten(order='C'), out_v[1].flatten(order='C'), out_v[2].flatten(order='C')
             mesh.point_data["Reconstructed_Velocity"] = np.stack([u, v, w], axis=1)
         
-        # Unify naming with vortex_mae_repro
+        # Unify naming with vortex_mae_repro for comparison
         mesh.point_data["Pred_Prob_Map"] = out_ivd.flatten(order='C')
         mesh.point_data["Binary_Selection"] = (out_ivd > 0.5).astype(np.float32).flatten(order='C')
         
-        # GT for comparison
-        gt_ivd = calculate_ivd(tensor_input).squeeze(0).cpu().numpy()
+        # Also add GT IVD for reference (calculated with correct spacing)
+        gt_ivd = calculate_ivd(tensor_input, dx=dx, dy=dy, dz=dz).squeeze(0).cpu().numpy()
+        mesh.point_data["GT_IVD_Field"] = gt_ivd.flatten(order='C')
         mesh.point_data["GT_IVD_Mask"] = (gt_ivd > 0).astype(np.float32).flatten(order='C')
         
         out_path = os.path.join(args.save_dir, os.path.basename(f).replace(".vti", "_fused.vti"))

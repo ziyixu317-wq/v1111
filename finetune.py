@@ -24,10 +24,12 @@ class FileListVTIDataset(Dataset):
         self.cache = []
         for f in file_paths:
             if self.vector_name:
-                vel = read_vti_with_vector(f, self.vector_name)
+                vel, sp = read_vti_with_vector(f, self.vector_name)
             else:
-                vel = read_single_vti(f, self.velocity_names)
+                vel, sp = read_single_vti(f, self.velocity_names)
             self.cache.append(vel)
+            if hasattr(self, 'spacing') == False:
+                self.spacing = sp
             
         self.cache = np.stack(self.cache, axis=0)
         self.mean = self.cache.mean(axis=(0,2,3,4), keepdims=True)
@@ -82,7 +84,8 @@ def main():
             
             # GT IVD
             with torch.no_grad():
-                ivd = calculate_ivd(batch)
+                dx, dy, dz = train_dataset.spacing
+                ivd = calculate_ivd(batch, dx=dx, dy=dy, dz=dz)
                 gt_mask = (ivd > 0).float().unsqueeze(1)
             
             pred_mask = pipeline(batch)

@@ -148,11 +148,13 @@ def main():
             for f in file_paths:
                 if self.vector_name:
                     from data_loader import read_vti_with_vector
-                    vel = read_vti_with_vector(f, self.vector_name)
+                    vel, sp = read_vti_with_vector(f, self.vector_name)
                 else:
                     from data_loader import read_single_vti
-                    vel = read_single_vti(f, self.velocity_names)
+                    vel, sp = read_single_vti(f, self.velocity_names)
                 self.cache.append(vel)
+                if hasattr(self, 'spacing') == False:
+                    self.spacing = sp # (dx, dy, dz)
                 
             self.cache = np.stack(self.cache, axis=0)
             self.mean = self.cache.mean(axis=(0,2,3,4), keepdims=True)
@@ -228,7 +230,8 @@ def main():
             
             # Calculate PI-MAE loss
             from mae3d import pi_mae_loss
-            loss, mse_loss, div_loss = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
+            dx, dy, dz = train_dataset.spacing
+            loss, mse_loss, div_loss = pi_mae_loss(x_rec, volume, mask, dx=dx, dy=dy, dz=dz, lambda_div=args.lambda_div)
             
             loss.backward()
             optimizer.step()
@@ -249,7 +252,8 @@ def main():
                     volume = volume.view(-1, *volume.shape[2:])
                 volume = volume.to(device)
                 x_rec, mask, _ = pipeline(volume)
-                loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
+                dx, dy, dz = test_dataset.spacing
+                loss, _, _ = pi_mae_loss(x_rec, volume, mask, dx=dx, dy=dy, dz=dz, lambda_div=args.lambda_div)
                 total_test_loss += loss.item()
                 
         avg_test_loss = total_test_loss / len(test_loader)
