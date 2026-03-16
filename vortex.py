@@ -66,3 +66,22 @@ def q_criterion(grad_u):
     
     Q = 0.5 * (norm_Omega_sq - norm_S_sq)
     return Q
+
+def calculate_ivd(u, dx=1.0, dy=1.0, dz=1.0):
+    """
+    Isolation by Vorticity Deviation (IVD).
+    u: (B, 3, D, H, W)
+    """
+    grad_u = velocity_gradient_tensor(u, dx, dy, dz)
+    
+    # omega = curl u
+    omg_x = grad_u[:, 2, 1] - grad_u[:, 1, 2]
+    omg_y = grad_u[:, 0, 2] - grad_u[:, 2, 0]
+    omg_z = grad_u[:, 1, 0] - grad_u[:, 0, 1]
+    vorticity_mag = torch.sqrt(omg_x**2 + omg_y**2 + omg_z**2 + 1e-8)
+    
+    # IVD: deviation from spatial mean
+    mean_vort = torch.mean(vorticity_mag, dim=(2, 3, 4), keepdim=True)
+    ivd_field = vorticity_mag - mean_vort
+    
+    return ivd_field

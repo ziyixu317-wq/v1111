@@ -192,11 +192,10 @@ def main():
     print(f"Data shape loaded: {C}x{D}x{H}x{W} (C x D x H x W)")
 
     # 2. Model Initialization
-    print(f"Initializing 3D MAE with mask ratio {args.mask_ratio}...")
-    # NOTE: Swin dimensions scale rapidly. Adjust depths, num_heads, window_size if running out of VRAM
-    # The default config here is relatively lightweight for demo purposes
-    pipeline = FlowVortexPipeline(
-        use_mae=True,
+    print(f"Initializing Fused 3D MAE with mask ratio {args.mask_ratio}...")
+    from pipeline import FlowVortexFusionPipeline
+    pipeline = FlowVortexFusionPipeline(
+        mode='pretrain',
         patch_size=(2, 4, 4),
         in_chans=C,
         embed_dim=48, 
@@ -224,11 +223,11 @@ def main():
             volume = volume.to(device)
             optimizer.zero_grad()
             
-            # Forward pass through pipeline
-            x_rec, mask, _, _, _ = pipeline(volume)
+            # Forward pass: x_rec, mask, ivd_pred
+            x_rec, mask, ivd_pred = pipeline(volume)
             
             # Calculate PI-MAE loss
-            # Note: dx, dy, dz are defaults (1.0). Adjust them if your grid scaling is different
+            from mae3d import pi_mae_loss
             loss, mse_loss, div_loss = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
             
             loss.backward()
@@ -249,7 +248,7 @@ def main():
                 if len(volume.shape) == 6:
                     volume = volume.view(-1, *volume.shape[2:])
                 volume = volume.to(device)
-                x_rec, mask, _, _, _ = pipeline(volume)
+                x_rec, mask, _ = pipeline(volume)
                 loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
                 total_test_loss += loss.item()
                 
