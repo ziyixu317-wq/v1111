@@ -99,7 +99,11 @@ def main():
         scheduler.step()
         print(f"Epoch {epoch} | Loss: {epoch_loss/len(train_loader):.6f}")
         
-    torch.save({'model_state_dict': pipeline.state_dict()}, os.path.join(args.save_dir, "fused_best.pth"))
+    torch.save({
+        'model_state_dict': pipeline.state_dict(),
+        'mean': torch.from_numpy(train_dataset.mean),
+        'std': torch.from_numpy(train_dataset.std),
+    }, os.path.join(args.save_dir, "fused_best.pth"))
 
 if __name__ == "__main__":
     main()

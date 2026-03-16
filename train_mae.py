@@ -268,6 +268,8 @@ def main():
                 'model_state_dict': pipeline.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': best_test_loss,
+                'mean': torch.from_numpy(train_dataset.mean),
+                'std': torch.from_numpy(train_dataset.std),
             }, ckpt_path)
             print(f"  -> Saved new best checkpoint to {ckpt_path}")
             

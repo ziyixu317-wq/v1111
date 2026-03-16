@@ -33,7 +33,6 @@ def main():
 
     # 2. Model Initialization
     print("Initializing Model...")
-    # Get in_chans from the first file
     sample_tensor = load_single_vti_as_tensor(files[0])
     pipeline = FlowVortexFusionPipeline(mode=args.mode, in_chans=sample_tensor.shape[1])
     ckpt = torch.load(args.checkpoint, map_location=device)
@@ -41,16 +40,25 @@ def main():
     pipeline.to(device)
     pipeline.eval()
 
+    # Load Normalization Stats
+    mean = ckpt.get('mean', torch.zeros(1, sample_tensor.shape[1], 1, 1, 1)).to(device)
+    std = ckpt.get('std', torch.ones(1, sample_tensor.shape[1], 1, 1, 1)).to(device)
+
     # 3. Inference Loop
     for f in files:
         print(f"Processing: {os.path.basename(f)}")
         tensor_input = load_single_vti_as_tensor(f).to(device)
-        if len(tensor_input.shape) == 4:
-            tensor_input = tensor_input.unsqueeze(0)
+        
+        # Apply Normalization
+        tensor_input_norm = (tensor_input - mean) / std
+        
+        if len(tensor_input_norm.shape) == 4:
+            tensor_input_norm = tensor_input_norm.unsqueeze(0)
             
         with torch.no_grad():
             if args.mode == 'pretrain':
-                x_rec, mask, ivd_pred = pipeline(tensor_input)
+                x_rec, mask, ivd_pred = pipeline(tensor_input_norm)
+                # ...
                 out_v = x_rec.squeeze(0).cpu().numpy()
                 out_ivd = ivd_pred.squeeze(0).cpu().numpy()
             else:
