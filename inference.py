@@ -33,7 +33,7 @@ def main():
 
     # 2. Model Initialization
     print("Initializing Model...")
-    sample_tensor = load_single_vti_as_tensor(files[0])
+    sample_tensor, _ = load_single_vti_as_tensor(files[0])
     pipeline = FlowVortexFusionPipeline(mode=args.mode, in_chans=sample_tensor.shape[1])
     ckpt = torch.load(args.checkpoint, map_location=device)
     pipeline.load_state_dict(ckpt['model_state_dict'])
