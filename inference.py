@@ -64,11 +64,13 @@ def main():
             u, v, w = out_v[0].flatten(order='C'), out_v[1].flatten(order='C'), out_v[2].flatten(order='C')
             mesh.point_data["Reconstructed_Velocity"] = np.stack([u, v, w], axis=1)
         
-        mesh.point_data["Pred_Vortex_Field"] = out_ivd.flatten(order='C')
+        # Unify naming with vortex_mae_repro
+        mesh.point_data["Pred_Prob_Map"] = out_ivd.flatten(order='C')
+        mesh.point_data["Binary_Selection"] = (out_ivd > 0.5).astype(np.float32).flatten(order='C')
         
         # GT for comparison
         gt_ivd = calculate_ivd(tensor_input).squeeze(0).cpu().numpy()
-        mesh.point_data["GT_IVD_Field"] = gt_ivd.flatten(order='C')
+        mesh.point_data["GT_IVD_Mask"] = (gt_ivd > 0).astype(np.float32).flatten(order='C')
         
         out_path = os.path.join(args.save_dir, os.path.basename(f).replace(".vti", "_fused.vti"))
         mesh.save(out_path)
