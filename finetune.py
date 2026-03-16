@@ -1,4 +1,3 @@
-
 import os
 import argparse
 import glob
@@ -24,12 +23,10 @@ class FileListVTIDataset(Dataset):
         self.cache = []
         for f in file_paths:
             if self.vector_name:
-                vel, sp = read_vti_with_vector(f, self.vector_name)
+                vel = read_vti_with_vector(f, self.vector_name)
             else:
-                vel, sp = read_single_vti(f, self.velocity_names)
+                vel = read_single_vti(f, self.velocity_names)
             self.cache.append(vel)
-            if hasattr(self, 'spacing') == False:
-                self.spacing = sp
             
         self.cache = np.stack(self.cache, axis=0)
         self.mean = self.cache.mean(axis=(0,2,3,4), keepdims=True)
@@ -57,12 +54,16 @@ def main():
     
     # 1. Dataset
     all_files = sorted(glob.glob(os.path.join(args.data_dir, "*.vti")))
+    if not all_files:
+        print(f"No .vti files found in {args.data_dir}")
+        return
+        
     train_dataset = FileListVTIDataset(all_files)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     
     in_chans = train_dataset[0].shape[0]
     
-    # 2. Model (Segmentation mode)
+    # 2. Model
     pipeline = FlowVortexFusionPipeline(mode='segmentation', in_chans=in_chans)
     pipeline.to(device)
     
@@ -82,10 +83,9 @@ def main():
             batch = batch.to(device)
             optimizer.zero_grad()
             
-            # GT IVD
+            # GT IVD (Uses unit spacing 1.0)
             with torch.no_grad():
-                dx, dy, dz = train_dataset.spacing
-                ivd = calculate_ivd(batch, dx=dx, dy=dy, dz=dz)
+                ivd = calculate_ivd(batch)
                 gt_mask = (ivd > 0).float().unsqueeze(1)
             
             pred_mask = pipeline(batch)
@@ -102,11 +102,13 @@ def main():
         scheduler.step()
         print(f"Epoch {epoch} | Loss: {epoch_loss/len(train_loader):.6f}")
         
+    # Save with normalization stats
     torch.save({
         'model_state_dict': pipeline.state_dict(),
         'mean': torch.from_numpy(train_dataset.mean),
         'std': torch.from_numpy(train_dataset.std),
     }, os.path.join(args.save_dir, "fused_best.pth"))
+    print(f"Saved fine-tuned model to {args.save_dir}/fused_best.pth")
 
 if __name__ == "__main__":
     main()

@@ -6,7 +6,7 @@ Calculates Q-Criterion from divergence-free velocity.
 import torch
 import torch.nn.functional as F
 
-def velocity_gradient_tensor(u, dx=1.0, dy=1.0, dz=1.0):
+def velocity_gradient_tensor(u):
     r"""
     u: (B, 3, D, H, W)
     Returns:
@@ -16,6 +16,7 @@ def velocity_gradient_tensor(u, dx=1.0, dy=1.0, dz=1.0):
     """
     B, _, D, H, W = u.shape
     device = u.device
+    dx, dy, dz = 1.0, 1.0, 1.0
     
     ux, uy, uz = u[:, 0], u[:, 1], u[:, 2] 
     
@@ -67,12 +68,12 @@ def q_criterion(grad_u):
     Q = 0.5 * (norm_Omega_sq - norm_S_sq)
     return Q
 
-def calculate_ivd(u, dx=1.0, dy=1.0, dz=1.0):
+def calculate_ivd(u):
     """
     Isolation by Vorticity Deviation (IVD).
     u: (B, 3, D, H, W)
     """
-    grad_u = velocity_gradient_tensor(u, dx, dy, dz)
+    grad_u = velocity_gradient_tensor(u)
     
     # omega = curl u
     omg_x = grad_u[:, 2, 1] - grad_u[:, 1, 2]

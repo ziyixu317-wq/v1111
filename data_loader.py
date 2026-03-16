@@ -64,8 +64,7 @@ def read_single_vti(
         components.append(arr_3d)
 
     velocity = np.stack(components, axis=0).astype(np.float32)  # (3, D, H, W)
-    spacing = mesh.spacing  # (dx, dy, dz)
-    return velocity, spacing
+    return velocity
 
 
 def read_vti_with_vector(
@@ -106,8 +105,7 @@ def read_vti_with_vector(
     w = vec[:, 2].reshape(dims[2], dims[1], dims[0])
 
     velocity = np.stack([u, v, w], axis=0).astype(np.float32)  # (3, D, H, W)
-    spacing = mesh.spacing
-    return velocity, spacing
+    return velocity
 
 
 class VTIFlowDataset(Dataset):
@@ -157,16 +155,12 @@ class VTIFlowDataset(Dataset):
 
         # 预加载所有数据到内存
         self._cache: List[np.ndarray] = []
-        self._spacings: List[np.ndarray] = []
         for f in self.file_list:
             if self.vector_name is not None:
-                vel, sp = read_vti_with_vector(f, self.vector_name)
+                vel = read_vti_with_vector(f, self.vector_name)
             else:
-                vel, sp = read_single_vti(f, self.velocity_names)
+                vel = read_single_vti(f, self.velocity_names)
             self._cache.append(vel)
-            self._spacings.append(sp)
-
-        self.spacing = self._spacings[0] # Assume constant spacing
 
         # 计算全局归一化统计量
         if self.normalize:
@@ -232,10 +226,9 @@ def load_single_vti_as_tensor(
         带 batch 维度的速度场张量。
     """
     if vector_name is not None:
-        vel, spacing = read_vti_with_vector(filepath, vector_name)
+        vel = read_vti_with_vector(filepath, vector_name)
     else:
-        vel, spacing = read_single_vti(filepath, velocity_names)
+        vel = read_single_vti(filepath, velocity_names)
 
     tensor = torch.from_numpy(vel).unsqueeze(0)  # (1, 3, D, H, W)
-    spacing_tensor = torch.tensor(spacing, dtype=torch.float32)
-    return tensor, spacing_tensor
+    return tensor
