@@ -81,7 +81,7 @@ def calculate_ivd(u, dx=1.0, dy=1.0, dz=1.0):
     vorticity_mag = torch.sqrt(omg_x**2 + omg_y**2 + omg_z**2 + 1e-8)
     
     # IVD: deviation from spatial mean
-    mean_vort = torch.mean(vorticity_mag, dim=(2, 3, 4), keepdim=True)
+    mean_vort = torch.mean(vorticity_mag, dim=(1, 2, 3), keepdim=True)
     ivd_field = vorticity_mag - mean_vort
     
     return ivd_field
