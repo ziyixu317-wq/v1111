@@ -119,3 +119,30 @@ class MAE3D_Fusion(nn.Module):
             x_out, x = layer(x)
             outs.append(x_out)
         return x, outs
+
+def pi_mae_loss(pred, target, mask, dx=1.0, dy=1.0, dz=1.0, lambda_div=0.1):
+    """
+    Physical-Informed Loss: MSE Reconstruction + Divergence Penalty
+    pred, target: (B, 3, D, H, W)
+    mask: (B, 1, D, H, W) where 1 indicates masked
+    """
+    # MSE Loss on masked pixels
+    mse_loss = F.mse_loss(pred * mask, target * mask, reduction='sum') / (mask.sum() * 3 + 1e-6)
+    
+    # Calculate Divergence: du/dx + dv/dy + dw/dz
+    u = pred[:, 0]
+    v = pred[:, 1]
+    w = pred[:, 2]
+    
+    u_pad = F.pad(u, (1, 1, 0, 0, 0, 0), mode='replicate')
+    v_pad = F.pad(v, (0, 0, 1, 1, 0, 0), mode='replicate')
+    w_pad = F.pad(w, (0, 0, 0, 0, 1, 1), mode='replicate')
+    
+    du_dx = (u_pad[:, :, :, 2:] - u_pad[:, :, :, :-2]) / (2 * dx)
+    dv_dy = (v_pad[:, :, 2:, :] - v_pad[:, :, :-2, :]) / (2 * dy)
+    dw_dz = (w_pad[:, 2:, :, :] - w_pad[:, :-2, :, :]) / (2 * dz)
+    
+    divergence = du_dx + dv_dy + dw_dz
+    div_loss = torch.mean(divergence ** 2)
+    
+    return mse_loss + lambda_div * div_loss, mse_loss, div_loss
