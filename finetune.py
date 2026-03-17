@@ -53,12 +53,20 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # 1. Dataset
+    # 使用总数据的 35% 到 40% 进行微调 (即 5% 的数据)
     all_files = sorted(glob.glob(os.path.join(args.data_dir, "*.vti")))
-    if not all_files:
-        print(f"No .vti files found in {args.data_dir}")
+    num_total = len(all_files)
+    idx_start = int(num_total * 0.35)
+    idx_end = int(num_total * 0.40)
+    finetune_files = all_files[idx_start:idx_end]
+    
+    print(f"Total files: {num_total}, using {len(finetune_files)} for fine-tuning (indices {idx_start}:{idx_end})")
+    
+    if not finetune_files:
+        print("Not enough files for fine-tuning.")
         return
-        
-    train_dataset = FileListVTIDataset(all_files)
+
+    train_dataset = FileListVTIDataset(finetune_files)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     
     in_chans = train_dataset[0].shape[0]

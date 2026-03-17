@@ -22,7 +22,12 @@ def main():
 
     # 1. Prepare files
     if os.path.isdir(args.data_path):
-        files = sorted(glob.glob(os.path.join(args.data_path, "*.vti")))
+        all_files = sorted(glob.glob(os.path.join(args.data_path, "*.vti")))
+        num_total = len(all_files)
+        idx_start = int(num_total * 0.40)
+        idx_end = int(num_total * 0.70)
+        files = all_files[idx_start:idx_end]
+        print(f"Total files in dir: {num_total}, using {len(files)} for inference (indices {idx_start}:{idx_end})")
     else:
         files = [args.data_path]
     

@@ -47,15 +47,15 @@ def main():
         
     print(f"Found {len(all_vti_files)} total .vti files in directory.")
     
-    # 按照 7:3 (70% 训练集, 30% 测试集) 划分
+    # 按照 30% 训练集, 5% 验证集 划分 (总数据的前 35%)
     num_total = len(all_vti_files)
-    num_train = int(num_total * 0.7)
-    num_test = num_total - num_train
+    num_train = int(num_total * 0.3)
+    num_eval = int(num_total * 0.05)
     
-    print(f"Splitting {num_total} timesteps (7:3 ratio): Train: {num_train} | Test: {num_test}")
+    print(f"Splitting {num_total} timesteps: Train: {num_train} (30%) | Eval: {num_eval} (5%)")
     
     train_files = all_vti_files[:num_train]
-    test_files = all_vti_files[num_train:]
+    test_files = all_vti_files[num_train : num_train + num_eval]
     
     # 之前在 data_loader.py 里定义的 MultiStepVTIDataset 恰好就是处理一连串文件路径的
     from data_loader import VTIFlowDataset
