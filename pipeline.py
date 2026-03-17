@@ -16,7 +16,7 @@ class FlowVortexFusionPipeline(nn.Module):
                 patch_size=(2, 4, 4), in_chans=3, out_chans=1,
                 embed_dim=48, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24], 
                 window_size=(4, 4, 4), mask_ratio=0.75,
-                use_helmholtz=False  # Keep it False for stability
+                use_helmholtz=True  # Enabled for Helmholtz-Hodge decomposition
             )
         self.fused_model = MAE3D_Fusion(mode=mode, **mae_kwargs)
             
