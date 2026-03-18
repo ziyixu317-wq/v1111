@@ -17,8 +17,13 @@ def main():
     
     args = parser.parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    try:
+        import torch_xla.core.xla_model as xm
+        device = xm.xla_device()
+        print(f"Using TPU device: {device}")
+    except ImportError:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Using device: {device}")
 
     # 1. Prepare files
     if os.path.isdir(args.data_path):
