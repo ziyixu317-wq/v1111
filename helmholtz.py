@@ -15,14 +15,19 @@ def helmholtz_decomposition(velocity: torch.Tensor, dx=1.0, dy=1.0, dz=1.0):
         v_irrotational: (B, 3, D, H, W), curl-free component
     """
     B, C, D, H, W = velocity.shape
+    orig_dtype = velocity.dtype
+    
+    # FFT does not support BFloat16/Half on many devices (including TPU/CPU/GPU)
+    # We perform the decomposition in Float32 to maintain precision and compatibility
+    v_f32 = velocity.to(torch.float32)
     
     # FFT of velocity field
-    v_hat = torch.fft.fftn(velocity, dim=(-3, -2, -1))
+    v_hat = torch.fft.fftn(v_f32, dim=(-3, -2, -1))
     
     # Wavenumber grids
-    kx = torch.fft.fftfreq(W, d=dx, device=velocity.device) * 2 * torch.pi
-    ky = torch.fft.fftfreq(H, d=dy, device=velocity.device) * 2 * torch.pi
-    kz = torch.fft.fftfreq(D, d=dz, device=velocity.device) * 2 * torch.pi
+    kx = torch.fft.fftfreq(W, d=dx, device=velocity.device, dtype=torch.float32) * 2 * torch.pi
+    ky = torch.fft.fftfreq(H, d=dy, device=velocity.device, dtype=torch.float32) * 2 * torch.pi
+    kz = torch.fft.fftfreq(D, d=dz, device=velocity.device, dtype=torch.float32) * 2 * torch.pi
     
     Kz, Ky, Kx = torch.meshgrid(kz, ky, kx, indexing='ij')
     K = torch.stack([Kx, Ky, Kz], dim=0).unsqueeze(0)  # (1, 3, D, H, W)
@@ -42,4 +47,4 @@ def helmholtz_decomposition(velocity: torch.Tensor, dx=1.0, dy=1.0, dz=1.0):
     v_solenoidal = torch.fft.ifftn(v_sol_hat, dim=(-3, -2, -1)).real
     v_irrotational = torch.fft.ifftn(v_irr_hat, dim=(-3, -2, -1)).real
     
-    return v_solenoidal, v_irrotational
+    return v_solenoidal.to(orig_dtype), v_irrotational.to(orig_dtype)
