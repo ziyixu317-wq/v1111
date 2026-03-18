@@ -36,18 +36,10 @@ def main():
     args = parser.parse_args()
     
     os.makedirs(args.save_dir, exist_ok=True)
-    try:
-        import torch_xla.core.xla_model as xm
-        import torch_xla
-        device = torch_xla.device() # Correct way for modern torch_xla
-        is_tpu = True
-        print(f"==========================================")
-        print(f"Using TPU device: {device}")
-    except (ImportError, AttributeError):
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        is_tpu = False
-        print(f"==========================================")
-        print(f"Using device: {device}")
+    # 强制使用 CPU (根据用户要求)
+    device = torch.device('cpu')
+    print(f"==========================================")
+    print(f"Using device: {device}")
     
     # 1. Dataset Splitting
     all_vti_files = sorted(glob.glob(os.path.join(args.data_dir, "*.vti")))
@@ -142,12 +134,6 @@ def main():
     )
     
     pipeline = pipeline.to(device)
-    
-    # 开启 TPU/BF16 混合精度优化
-    if is_tpu:
-        print("Enabling bfloat16 precision for TPU optimization...")
-        pipeline = pipeline.to(torch.bfloat16)
-
     optimizer = AdamW(pipeline.parameters(), lr=args.lr, weight_decay=0.05)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
     
@@ -164,24 +150,16 @@ def main():
                 volume = volume.view(-1, *volume.shape[2:])
             
             volume = volume.to(device)
-            if is_tpu:
-                volume = volume.to(torch.bfloat16)
-                
             optimizer.zero_grad()
             
             # Forward pass
             x_rec, mask, ivd_pred = pipeline(volume)
             
             # Calculate loss (pi_mae_loss internal handles targets)
-            # Ensure target matches volume's dtype
             loss, mse_loss, div_loss = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
             
             loss.backward()
-            
-            if is_tpu:
-                xm.optimizer_step(optimizer) # TPU specific step
-            else:
-                optimizer.step()
+            optimizer.step()
             
             total_train_loss += loss.item()
             total_mse += mse_loss.item()
@@ -198,8 +176,6 @@ def main():
                 if len(volume.shape) == 6:
                     volume = volume.view(-1, *volume.shape[2:])
                 volume = volume.to(device)
-                if is_tpu:
-                    volume = volume.to(torch.bfloat16)
                 x_rec, mask, _ = pipeline(volume)
                 loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
                 total_test_loss += loss.item()
