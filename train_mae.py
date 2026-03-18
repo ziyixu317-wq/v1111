@@ -24,7 +24,7 @@ from data_loader import read_single_vti, read_vti_with_vector
 def main():
     parser = argparse.ArgumentParser(description="Pre-train 3D MAE on a VTI directory sequence.")
     parser.add_argument("--data_dir", type=str, required=True, help="Path to the directory containing .vti files")
-    parser.add_argument("--batch_size", type=int, default=2, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
     parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--mask_ratio", type=float, default=0.75, help="Masking ratio (0.0 to 1.0)")
@@ -38,11 +38,14 @@ def main():
     os.makedirs(args.save_dir, exist_ok=True)
     try:
         import torch_xla.core.xla_model as xm
-        device = xm.xla_device()
+        import torch_xla
+        device = torch_xla.device() # Correct way for modern torch_xla
+        is_tpu = True
         print(f"==========================================")
         print(f"Using TPU device: {device}")
-    except ImportError:
+    except (ImportError, AttributeError):
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        is_tpu = False
         print(f"==========================================")
         print(f"Using device: {device}")
     
@@ -139,6 +142,12 @@ def main():
     )
     
     pipeline = pipeline.to(device)
+    
+    # 开启 TPU/BF16 混合精度优化
+    if is_tpu:
+        print("Enabling bfloat16 precision for TPU optimization...")
+        pipeline = pipeline.to(torch.bfloat16)
+
     optimizer = AdamW(pipeline.parameters(), lr=args.lr, weight_decay=0.05)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
     
@@ -153,18 +162,26 @@ def main():
         for batch_idx, volume in enumerate(train_loader):
             if len(volume.shape) == 6:
                 volume = volume.view(-1, *volume.shape[2:])
+            
             volume = volume.to(device)
+            if is_tpu:
+                volume = volume.to(torch.bfloat16)
+                
             optimizer.zero_grad()
             
-            # Forward pass: x_rec, mask, ivd_pred
+            # Forward pass
             x_rec, mask, ivd_pred = pipeline(volume)
             
-            # Calculate PI-MAE loss
-            from mae3d import pi_mae_loss
+            # Calculate loss (pi_mae_loss internal handles targets)
+            # Ensure target matches volume's dtype
             loss, mse_loss, div_loss = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
             
             loss.backward()
-            optimizer.step()
+            
+            if is_tpu:
+                xm.optimizer_step(optimizer) # TPU specific step
+            else:
+                optimizer.step()
             
             total_train_loss += loss.item()
             total_mse += mse_loss.item()
@@ -181,6 +198,8 @@ def main():
                 if len(volume.shape) == 6:
                     volume = volume.view(-1, *volume.shape[2:])
                 volume = volume.to(device)
+                if is_tpu:
+                    volume = volume.to(torch.bfloat16)
                 x_rec, mask, _ = pipeline(volume)
                 loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
                 total_test_loss += loss.item()
