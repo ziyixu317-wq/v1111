@@ -80,18 +80,20 @@ def main():
                     d_s, h_s, w_s = max(0, d_s), max(0, h_s), max(0, w_s)
                     
                     patch = t_norm[:, :, d_s:d_e, h_s:h_e, w_s:w_e]
+                    p_d, p_h, p_w = patch.shape[2], patch.shape[3], patch.shape[4]
+                    
                     # Pad to win_size if needed
-                    pad_d, pad_h, pad_w = win_size - patch.shape[2], win_size - patch.shape[3], win_size - patch.shape[4]
+                    pad_d, pad_h, pad_w = win_size - p_d, win_size - p_h, win_size - p_w
                     if pad_d > 0 or pad_h > 0 or pad_w > 0:
                         patch = torch.nn.functional.pad(patch, (0, pad_w, 0, pad_h, 0, pad_d))
                     
                     with torch.no_grad():
                         if args.mode == 'pretrain':
                             rec, _, _ = pipeline(patch)
-                            full_rec[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += rec[:, :, :patch.shape[2], :patch.shape[3], :patch.shape[4]]
+                            full_rec[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += rec[:, :, :p_d, :p_h, :p_w]
                         else:
                             logits = pipeline(patch)
-                            full_logits[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += logits[:, :, :patch.shape[2], :patch.shape[3], :patch.shape[4]]
+                            full_logits[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += logits[:, :, :p_d, :p_h, :p_w]
                         full_count[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += 1
         
         # 4. Post-process & Save
