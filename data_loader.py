@@ -110,31 +110,15 @@ def read_vti_with_vector(
 
 class VTIFlowDataset(Dataset):
     """
-    用于加载时间序列结构化网格流场数据的 PyTorch Dataset。
-
-    从目录中读取多个时间步的 .vti 文件，按文件名排序后组装为
-    滑动窗口序列，输出张量形状为 (T, C, D, H, W)。
-
-    Parameters
-    ----------
-    data_dir : str
-        包含 .vti 文件的目录路径。
-    time_window : int
-        时间窗口长度 T，连续采样 T 个时间步。
-    velocity_names : tuple
-        速度分量名称。
-    vector_name : str or None
-        如果速度场存储为单个向量数组，指定该名称；否则设为 None。
-    stride : int
-        滑动窗口步长。
-    normalize : bool
-        是否对速度场进行归一化。
+    Advanced VTI Data Loader: Min-Max Normalization + Random Cropping.
+    Consistent with the paper's experimental setup.
     """
-
     def __init__(
         self,
         data_dir: str,
-        time_window: int = 4,
+        split: str = "train",
+        time_window: int = 1, # Default to 1 to match VortexMAE single-step
+        crop_size: int = 128,
         velocity_names: Tuple[str, str, str] = ("u", "v", "w"),
         vector_name: Optional[str] = None,
         stride: int = 1,
@@ -143,38 +127,49 @@ class VTIFlowDataset(Dataset):
         super().__init__()
         self.data_dir = data_dir
         self.time_window = time_window
+        self.crop_size = crop_size
         self.velocity_names = velocity_names
         self.vector_name = vector_name
         self.stride = stride
         self.normalize = normalize
-
-        # 收集所有 .vti 文件并排序
-        self.file_list = sorted(glob.glob(os.path.join(data_dir, "*.vti")))
-        if len(self.file_list) == 0:
-            raise FileNotFoundError(f"在 {data_dir} 中未找到 .vti 文件。")
-
-        # 预加载所有数据到内存
-        self._cache: List[np.ndarray] = []
-        for f in self.file_list:
-            if self.vector_name is not None:
-                vel = read_vti_with_vector(f, self.vector_name)
+        
+        # 1. Collect and Split Files
+        self.all_files = sorted(glob.glob(os.path.join(data_dir, "*.vti")))
+        if len(self.all_files) == 0:
+            raise FileNotFoundError(f"No .vti files in {data_dir}")
+            
+        num_total = len(self.all_files)
+        # Small dataset logic (8:2 split)
+        if num_total < 12:
+            num_train = int(num_total * 0.8)
+            if split in ("train", "pretrain_train", "finetune_train"):
+                self.files = self.all_files[:num_train]
             else:
-                vel = read_single_vti(f, self.velocity_names)
-            self._cache.append(vel)
-
-        # 计算全局归一化统计量
-        if self.normalize:
-            all_data = np.stack(self._cache, axis=0)  # (N_files, 3, D, H, W)
-            self._mean = all_data.mean(axis=(0, 2, 3, 4), keepdims=True)  # (1, 3, 1, 1, 1)
-            self._std = all_data.std(axis=(0, 2, 3, 4), keepdims=True) + 1e-8
+                self.files = self.all_files[num_train:]
         else:
-            self._mean = 0.0
-            self._std = 1.0
+            # Standard split logic (Paper-like)
+            if split in ("train", "pretrain_train", "finetune_train"):
+                self.files = self.all_files[:int(num_total * 0.7)]
+            else:
+                self.files = self.all_files[int(num_total * 0.7):]
+        
+        self.do_crop = split not in ("inference", "test")
 
-        # 有效序列数量
-        self._num_sequences = max(
-            1, (len(self._cache) - self.time_window) // self.stride + 1
-        )
+        # 2. Pre-load and Calculate Normalization (Min-Max)
+        print(f"[{split}] Loading {len(self.files)} files...")
+        self._cache = []
+        for f in self.files:
+            vel = read_vti_with_vector(f, self.vector_name) if self.vector_name else read_single_vti(f, self.velocity_names)
+            self._cache.append(vel)
+            
+        if self.normalize and len(self._cache) > 0:
+            all_arr = np.stack(self._cache, axis=0) # (N, 3, D, H, W)
+            self._min = all_arr.min(axis=(0, 2, 3, 4), keepdims=True)
+            self._max = all_arr.max(axis=(0, 2, 3, 4), keepdims=True)
+        else:
+            self._min, self._max = 0.0, 1.0
+
+        self._num_sequences = max(1, (len(self._cache) - self.time_window) // self.stride + 1)
 
     def __len__(self) -> int:
         return self._num_sequences
@@ -182,25 +177,50 @@ class VTIFlowDataset(Dataset):
     def __getitem__(self, idx: int) -> torch.Tensor:
         start = idx * self.stride
         end = start + self.time_window
-
         frames = []
+        
         for i in range(start, min(end, len(self._cache))):
             vel = self._cache[i].copy()
+            # Per-channel Min-Max
             if self.normalize:
-                vel = (vel - self._mean.squeeze(0)) / self._std.squeeze(0)
+                vel = (vel - self._min[0]) / (self._max[0] - self._min[0] + 1e-8)
             frames.append(vel)
-
-        # 如果帧数不足，用最后一帧填充
+        
         while len(frames) < self.time_window:
             frames.append(frames[-1].copy())
-
-        # 组装: (T, C, D, H, W)
-        sequence = np.stack(frames, axis=0)
-        return torch.from_numpy(sequence)
+            
+        sequence = np.stack(frames, axis=0) # (T, C, D, H, W)
+        # Squash T if T=1
+        if self.time_window == 1:
+            data = sequence[0]
+        else:
+            data = sequence # Note: MAE Fusion expects (C, D, H, W) mostly
+            
+        if self.do_crop:
+            # 3D Random Crop/Pad to 128^3
+            C, D, H, W = data.shape if data.ndim == 4 else data.shape[1:]
+            target = self.crop_size
+            
+            d_s = np.random.randint(0, max(1, D - target))
+            h_s = np.random.randint(0, max(1, H - target))
+            w_s = np.random.randint(0, max(1, W - target))
+            
+            if data.ndim == 4:
+                data = data[:, d_s:d_s+target, h_s:h_s+target, w_s:w_s+target]
+            else:
+                data = data[:, :, d_s:d_s+target, h_s:h_s+target, w_s:w_s+target]
+            
+            # Padding
+            pad_d = target - data.shape[-3]
+            pad_h = target - data.shape[-2]
+            pad_w = target - data.shape[-1]
+            if pad_d > 0 or pad_h > 0 or pad_w > 0:
+                data = np.pad(data, ((0,0), (0,pad_d), (0,pad_h), (0,pad_w)), mode='constant')
+        
+        return torch.from_numpy(data)
 
     @property
     def spatial_shape(self) -> Tuple[int, int, int]:
-        """返回空间维度 (D, H, W)"""
         return self._cache[0].shape[1:]
 
     @property

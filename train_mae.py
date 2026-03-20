@@ -58,65 +58,22 @@ def main():
     train_files = all_vti_files[:num_train]
     test_files = all_vti_files[num_train : num_train + num_eval]
     
-    # 之前在 data_loader.py 里定义的 MultiStepVTIDataset 恰好就是处理一连串文件路径的
     from data_loader import VTIFlowDataset
     
-    # VTIFlowDataset 会把传进来的文件夹里所有 VTI 按顺序组合成时间序列
-    # 为了精细控制切分，我们可以稍微复写或直接借用一个可以传 file_list 的类
-    # 既然 VTIFlowDataset 要求传 data_dir，我们这里实现一个能直接吃 file_list 的封装：
-    class FileListVTIDataset(Dataset):
-        def __init__(self, file_paths, time_window=1, velocity_names=("u", "v", "w"), vector_name=None):
-            self.file_paths = file_paths
-            self.time_window = time_window
-            self.vector_name = vector_name
-            self.velocity_names = velocity_names
-            
-            print(f"Loading {len(file_paths)} VTI files into memory...")
-            self.cache = []
-            for f in file_paths:
-                if self.vector_name:
-                    from data_loader import read_vti_with_vector
-                    vel = read_vti_with_vector(f, self.vector_name)
-                else:
-                    from data_loader import read_single_vti
-                    vel = read_single_vti(f, self.velocity_names)
-                self.cache.append(vel)
-                
-            self.cache = np.stack(self.cache, axis=0)
-            self.mean = self.cache.mean(axis=(0,2,3,4), keepdims=True)
-            self.std = self.cache.std(axis=(0,2,3,4), keepdims=True) + 1e-8
-            self.cache = (self.cache - self.mean) / self.std
-            
-        def __len__(self):
-            return max(1, len(self.cache) - self.time_window + 1)
-            
-        def __getitem__(self, idx):
-            # 获取 time_window 个连续时间步作为输入张量
-            seq = self.cache[idx : idx + self.time_window]
-            return torch.from_numpy(seq)
-
-    train_dataset = FileListVTIDataset(train_files, time_window=args.time_window, vector_name=args.vector_name)
-    test_dataset = FileListVTIDataset(test_files, time_window=args.time_window, vector_name=args.vector_name)
+    train_dataset = VTIFlowDataset(
+        args.data_dir, split="pretrain_train", time_window=args.time_window, 
+        vector_name=args.vector_name, normalize=True, crop_size=128
+    )
+    test_dataset = VTIFlowDataset(
+        args.data_dir, split="pretrain_val", time_window=args.time_window, 
+        vector_name=args.vector_name, normalize=True, crop_size=128
+    )
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
     
     sample_batch = next(iter(train_loader))
-    
-    # Depending on 'time_window', shape might be (B, C, D, H, W) or (B, T, C, D, H, W)
-    if len(sample_batch.shape) == 5:
-        B, C, D, H, W = sample_batch.shape
-    elif len(sample_batch.shape) == 6:
-        B, T, C, D, H, W = sample_batch.shape
-        # For MAE3D currently designed for (B, C, D, H, W), we might need to fold T into C or batch it
-        # Assuming spatial Swin3D without T, we take the sequence and fold T into B
-        # sample_batch = sample_batch.view(B*T, C, D, H, W)
-        print(f"Warning: 6D tensor loaded. Taking only the first timestep for demonstration.")
-        sample_batch = sample_batch[:, 0]
-        B, C, D, H, W = sample_batch.shape
-    else:
-        raise ValueError(f"Unexpected batch shape: {sample_batch.shape}")
-        
+    B, C, D, H, W = sample_batch.shape
     print(f"Data shape loaded: {C}x{D}x{H}x{W} (C x D x H x W)")
 
     # 2. Model Initialization
@@ -124,7 +81,7 @@ def main():
     from pipeline import FlowVortexFusionPipeline
     pipeline = FlowVortexFusionPipeline(
         mode='pretrain',
-        patch_size=(2, 4, 4),
+        patch_size=(4, 4, 4), # Synchronized with paper
         in_chans=C,
         embed_dim=48, 
         depths=[2, 2, 6, 2], 
@@ -146,9 +103,6 @@ def main():
         total_train_loss, total_mse, total_div = 0.0, 0.0, 0.0
         
         for batch_idx, volume in enumerate(train_loader):
-            if len(volume.shape) == 6:
-                volume = volume.view(-1, *volume.shape[2:])
-            
             volume = volume.to(device)
             optimizer.zero_grad()
             
@@ -173,8 +127,6 @@ def main():
         total_test_loss = 0.0
         with torch.no_grad():
             for volume in test_loader:
-                if len(volume.shape) == 6:
-                    volume = volume.view(-1, *volume.shape[2:])
                 volume = volume.to(device)
                 x_rec, mask, _ = pipeline(volume)
                 loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
@@ -187,7 +139,7 @@ def main():
               f"Train Loss: {avg_train_loss:.4f} (MSE: {total_mse/len(train_loader):.4f}, Div: {total_div/len(train_loader):.4f}) | "
               f"Test Loss: {avg_test_loss:.4f}")
               
-        # Save Checkpoint and Visualization
+        # Save Checkpoint
         if avg_test_loss < best_test_loss:
             best_test_loss = avg_test_loss
             ckpt_path = os.path.join(args.save_dir, "mae_best_checkpoint.pth")
@@ -196,56 +148,34 @@ def main():
                 'model_state_dict': pipeline.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': best_test_loss,
-                'mean': torch.from_numpy(train_dataset.mean),
-                'std': torch.from_numpy(train_dataset.std),
+                'min': torch.from_numpy(train_dataset._min),
+                'max': torch.from_numpy(train_dataset._max),
             }, ckpt_path)
             print(f"  -> Saved new best checkpoint to {ckpt_path}")
             
-        # Optional: Save a visual reconstruction of the FIRST batch in test_loader
-        # We save it every 10 epochs or at the very last epoch to save disk space
+        # Optional: Save visual reconstruction
         if epoch % 10 == 0 or epoch == args.epochs:
-            # We already have the last `x_rec` and `volume` from the test loop
-            # x_rec shape: (B, 3, D, H, W)
-            # Take the first sample in the batch
-            sample_rec = x_rec[0].cpu().numpy() # (3, D, H, W)
-            sample_true = volume[0].cpu().numpy() # (3, D, H, W)
+            sample_rec = x_rec[0].cpu().numpy()
+            sample_true = volume[0].cpu().numpy()
             
-            # Reverse normalization if standard deviation/mean was stored
-            # (Assuming test_dataset has mean and std accessible)
-            try:
-                mean = test_dataset.mean.squeeze(0).squeeze(0) # (1, 3, 1, 1, 1) to (3, 1, 1) usually, or 0.0
-                std = test_dataset.std.squeeze(0).squeeze(0)
-                sample_rec = sample_rec * std + mean
-                sample_true = sample_true * std + mean
-            except:
-                pass # If it fails, just save the normalized version
+            # Reverse Min-Max
+            v_min = train_dataset._min[0]
+            v_max = train_dataset._max[0]
+            sample_rec = sample_rec * (v_max - v_min) + v_min
+            sample_true = sample_true * (v_max - v_min) + v_min
             
-            # Save using PyVista (We create an ImageData block)
             vis_mesh = pv.ImageData()
-            vis_mesh.dimensions = (W, H, D)
-            vis_mesh.spacing = (1.0, 1.0, 1.0)
-            vis_mesh.origin = (0.0, 0.0, 0.0)
+            vis_mesh.dimensions = (sample_rec.shape[-1], sample_rec.shape[-2], sample_rec.shape[-3])
+            vis_mesh.spacing, vis_mesh.origin = (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)
             
-            # Flatten with order='C' (Z-fastest locally, matching VTK x-fastest spatial array interpretation usually)
-            u_rec = sample_rec[0].flatten(order='C')
-            v_rec = sample_rec[1].flatten(order='C')
-            w_rec = sample_rec[2].flatten(order='C')
-            vec_rec = np.stack([u_rec, v_rec, w_rec], axis=1)
-            
-            u_true = sample_true[0].flatten(order='C')
-            v_true = sample_true[1].flatten(order='C')
-            w_true = sample_true[2].flatten(order='C')
-            vec_true = np.stack([u_true, v_true, w_true], axis=1)
-            
-            vis_mesh.point_data["Reconstructed_Velocity"] = vec_rec
-            vis_mesh.point_data["GroundTruth_Velocity"] = vec_true
+            vis_mesh.point_data["Reconstructed_Velocity"] = np.stack([sample_rec[0].flatten(order='C'), sample_rec[1].flatten(order='C'), sample_rec[2].flatten(order='C')], axis=1)
+            vis_mesh.point_data["GroundTruth_Velocity"] = np.stack([sample_true[0].flatten(order='C'), sample_true[1].flatten(order='C'), sample_true[2].flatten(order='C')], axis=1)
             
             out_vti = os.path.join(args.save_dir, f"epoch_{epoch}_test_reconstruction.vti")
             vis_mesh.save(out_vti)
-            print(f"  -> Saved reconstructed VTI for visual inspection to {out_vti}")
+            print(f"  -> Saved reconstructed VTI to {out_vti}")
 
     print("\nPre-training complete!")
-    print("==========================================")
 
 if __name__ == "__main__":
     main()

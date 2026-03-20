@@ -13,7 +13,7 @@ class FlowVortexFusionPipeline(nn.Module):
         self.mode = mode
         if not mae_kwargs:
             mae_kwargs = dict(
-                patch_size=(2, 4, 4), in_chans=3, out_chans=1,
+                patch_size=(4, 4, 4), in_chans=3, out_chans=1,
                 embed_dim=48, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24], 
                 window_size=(4, 4, 4), mask_ratio=0.75,
                 use_helmholtz=True  # Enabled for Helmholtz-Hodge decomposition

@@ -11,7 +11,7 @@ class MAE3D_Fusion(nn.Module):
     Fusion Model: Swin-Encoder + U-Net Decoder + Helmholtz Preprocessor.
     Supports Pre-training (Flow Reconstruct) and Segmentation (IVD Mask).
     """
-    def __init__(self, patch_size=(2, 4, 4), in_chans=3, out_chans=1,
+    def __init__(self, patch_size=(4, 4, 4), in_chans=3, out_chans=1,
                  embed_dim=48, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24], 
                  window_size=(4, 4, 4), mask_ratio=0.75, mode='pretrain',
                  use_helmholtz=True):
@@ -39,13 +39,29 @@ class MAE3D_Fusion(nn.Module):
         d2 = embed_dim * 4
         d3 = embed_dim * 8
         
-        self.up_stage3 = nn.ConvTranspose3d(d3, d2, kernel_size=2, stride=2)
-        self.up_stage2 = nn.ConvTranspose3d(d2, d1, kernel_size=2, stride=2)
-        self.up_stage1 = nn.ConvTranspose3d(d1, embed_dim, kernel_size=2, stride=2)
+        self.up_stage3 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False),
+            nn.Conv3d(d3, d2, kernel_size=3, padding=1)
+        )
+        self.up_stage2 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False),
+            nn.Conv3d(d2, d1, kernel_size=3, padding=1)
+        )
+        self.up_stage1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='trilinear', align_corners=False),
+            nn.Conv3d(d1, embed_dim, kernel_size=3, padding=1)
+        )
         
         # Final Task Heads
-        self.head_rec = nn.ConvTranspose3d(embed_dim, in_chans, kernel_size=patch_size, stride=patch_size)
-        self.head_seg = nn.ConvTranspose3d(embed_dim, out_chans, kernel_size=patch_size, stride=patch_size)
+        # Use Upsample + Conv3d to match patch scale expansion
+        self.head_rec = nn.Sequential(
+            nn.Upsample(scale_factor=patch_size, mode='trilinear', align_corners=False),
+            nn.Conv3d(embed_dim, in_chans, kernel_size=3, padding=1)
+        )
+        self.head_seg = nn.Sequential(
+            nn.Upsample(scale_factor=patch_size, mode='trilinear', align_corners=False),
+            nn.Conv3d(embed_dim, out_chans, kernel_size=3, padding=1)
+        )
 
     def forward(self, x):
         """
@@ -113,7 +129,7 @@ class MAE3D_Fusion(nn.Module):
             return rec, mask_pixel
         else:
             seg = self.head_seg(z)
-            return torch.sigmoid(seg)
+            return seg # Return raw logits for BCEWithLogitsLoss stability
 
     def _encoder_forward_masked(self, x):
         outs = []
