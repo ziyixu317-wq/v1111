@@ -123,6 +123,7 @@ class VTIFlowDataset(Dataset):
         vector_name: Optional[str] = None,
         stride: int = 1,
         normalize: bool = True,
+        max_files: Optional[int] = None,
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -137,6 +138,9 @@ class VTIFlowDataset(Dataset):
         self.all_files = sorted(glob.glob(os.path.join(data_dir, "*.vti")))
         if len(self.all_files) == 0:
             raise FileNotFoundError(f"No .vti files in {data_dir}")
+            
+        if max_files is not None:
+            self.all_files = self.all_files[:max_files]
             
         num_total = len(self.all_files)
         # Consistent 80/20 split for all dataset sizes

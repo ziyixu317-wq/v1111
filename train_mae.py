@@ -32,6 +32,7 @@ def main():
     parser.add_argument("--time_window", type=int, default=1, help="Time window size (set to 1 for 3D spatial MAE, >1 for Spatio-temporal)")
     parser.add_argument("--vector_name", type=str, default=None, help="Name of vector array in VTI")
     parser.add_argument("--save_dir", type=str, default="./checkpoints", help="Directory to save checkpoints")
+    parser.add_argument("--max_files", type=int, default=None, help="Limit number of files for pre-training")
     
     args = parser.parse_args()
     
@@ -46,27 +47,24 @@ def main():
     if len(all_vti_files) == 0:
         raise ValueError(f"No .vti files found in {args.data_dir}")
         
-    print(f"Found {len(all_vti_files)} total .vti files in directory.")
-    
-    # 后端 VTIFlowDataset 默认采用 80/20 比例划分训练与验证集
+    if args.max_files is not None:
+        all_vti_files = all_vti_files[:args.max_files]
+        
     num_total = len(all_vti_files)
     num_train = int(num_total * 0.8)
     num_eval = num_total - num_train
     
-    print(f"Dataset partitioning (80/20): Train: {num_train} | Eval: {num_eval}")
-    
-    train_files = all_vti_files[:num_train]
-    test_files = all_vti_files[num_train : num_train + num_eval]
+    print(f"Dataset partitioning (80/20): Train: {num_train} | Eval: {num_eval} (Total: {num_total})")
     
     from data_loader import VTIFlowDataset
     
     train_dataset = VTIFlowDataset(
         args.data_dir, split="pretrain_train", time_window=args.time_window, 
-        vector_name=args.vector_name, normalize=True, crop_size=128
+        vector_name=args.vector_name, normalize=True, crop_size=128, max_files=args.max_files
     )
     test_dataset = VTIFlowDataset(
         args.data_dir, split="pretrain_val", time_window=args.time_window, 
-        vector_name=args.vector_name, normalize=True, crop_size=128
+        vector_name=args.vector_name, normalize=True, crop_size=128, max_files=args.max_files
     )
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)

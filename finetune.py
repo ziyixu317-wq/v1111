@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--pos_weight", type=float, default=1.0, help="Positive class weight for paper loss")
     parser.add_argument("--rec_weight", type=float, default=5.0, help="Weight for reconstruction MSE loss")
     parser.add_argument("--save_dir", type=str, default="./checkpoints_fused_finetune")
+    parser.add_argument("--max_files", type=int, default=None, help="Limit number of files for fine-tuning")
     
     args = parser.parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
@@ -36,8 +37,8 @@ def main():
     
     # 1. Dataset
     # Split: 8 for train, 3 for val (assuming 11 total files)
-    train_dataset = VTIFlowDataset(args.data_dir, split="finetune_train", crop_size=128)
-    val_dataset = VTIFlowDataset(args.data_dir, split="finetune_val", crop_size=128)
+    train_dataset = VTIFlowDataset(args.data_dir, split="finetune_train", crop_size=128, max_files=args.max_files)
+    val_dataset = VTIFlowDataset(args.data_dir, split="finetune_val", crop_size=128, max_files=args.max_files)
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
