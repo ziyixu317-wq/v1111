@@ -124,6 +124,7 @@ class VTIFlowDataset(Dataset):
         stride: int = 1,
         normalize: bool = True,
         max_files: Optional[int] = None,
+        norm_stats: Optional[Tuple[np.ndarray, np.ndarray]] = None
     ):
         super().__init__()
         self.data_dir = data_dir
@@ -153,20 +154,27 @@ class VTIFlowDataset(Dataset):
         self.do_crop = split not in ("inference", "test")
 
         # 2. Sequential Scan for Normalization (Min-Max) - Memory Efficient
-        print(f"[{split}] Scanning {len(self.files)} files for Norm Stats...")
-        self._min = np.array([float('inf')] * 3, dtype=np.float32).reshape(1, 3, 1, 1, 1)
-        self._max = np.array([float('-inf')] * 3, dtype=np.float32).reshape(1, 3, 1, 1, 1)
-        
-        # Calculate stats without holding all data in RAM
-        for f in self.files:
-            vel = read_vti_with_vector(f, self.vector_name) if self.vector_name else read_single_vti(f, self.velocity_names)
-            # vel: (3, D, H, W)
-            f_min = vel.min(axis=(1, 2, 3)).reshape(1, 3, 1, 1, 1)
-            f_max = vel.max(axis=(1, 2, 3)).reshape(1, 3, 1, 1, 1)
-            self._min = np.minimum(self._min, f_min)
-            self._max = np.maximum(self._max, f_max)
+        if norm_stats is not None:
+            self._min, self._max = norm_stats
+            print(f"[{split}] Using provided Norm Stats (Min: {self._min.flatten()}, Max: {self._max.flatten()})")
+        else:
+            print(f"[{split}] Scanning {len(self.files)} files for Norm Stats...")
+            self._min = np.array([float('inf')] * 3, dtype=np.float32).reshape(1, 3, 1, 1, 1)
+            self._max = np.array([float('-inf')] * 3, dtype=np.float32).reshape(1, 3, 1, 1, 1)
+            
+            # Calculate stats without holding all data in RAM
+            for f in self.files:
+                vel = read_vti_with_vector(f, self.vector_name) if self.vector_name else read_single_vti(f, self.velocity_names)
+                # vel: (3, D, H, W)
+                f_min = vel.min(axis=(1, 2, 3)).reshape(1, 3, 1, 1, 1)
+                f_max = vel.max(axis=(1, 2, 3)).reshape(1, 3, 1, 1, 1)
+                self._min = np.minimum(self._min, f_min)
+                self._max = np.maximum(self._max, f_max)
             
         self._num_sequences = max(1, (len(self.files) - self.time_window) // self.stride + 1)
+
+    def get_norm_stats(self) -> Tuple[np.ndarray, np.ndarray]:
+        return self._min, self._max
 
     def __len__(self) -> int:
         return self._num_sequences

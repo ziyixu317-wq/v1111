@@ -35,10 +35,18 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
+    # 2. Model & Checkpoint
+    print(f"Loading pretrained weights from {args.pretrained_ckpt}...")
+    ckpt = torch.load(args.pretrained_ckpt, map_location=device)
+    
+    has_norm = 'min' in ckpt
+    norm_stats = (ckpt['min'].numpy(), ckpt['max'].numpy()) if has_norm else None
+    p_min = ckpt['min'].to(device) if has_norm else None
+    p_max = ckpt['max'].to(device) if has_norm else None
+    
     # 1. Dataset
-    # Split: 8 for train, 3 for val (assuming 11 total files)
-    train_dataset = VTIFlowDataset(args.data_dir, split="finetune_train", crop_size=128, max_files=args.max_files)
-    val_dataset = VTIFlowDataset(args.data_dir, split="finetune_val", crop_size=128, max_files=args.max_files)
+    train_dataset = VTIFlowDataset(args.data_dir, split="finetune_train", crop_size=128, max_files=args.max_files, norm_stats=norm_stats)
+    val_dataset = VTIFlowDataset(args.data_dir, split="finetune_val", crop_size=128, max_files=args.max_files, norm_stats=norm_stats)
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
@@ -48,14 +56,7 @@ def main():
     # 2. Model
     pipeline = FlowVortexFusionPipeline(mode='segmentation', in_chans=in_chans, patch_size=(4, 4, 4))
     pipeline.to(device)
-    
-    print(f"Loading pretrained weights from {args.pretrained_ckpt}...")
-    ckpt = torch.load(args.pretrained_ckpt, map_location=device)
     pipeline.load_state_dict(ckpt['model_state_dict'], strict=False)
-    
-    has_norm = 'min' in ckpt
-    p_min = ckpt['min'].to(device) if has_norm else None
-    p_max = ckpt['max'].to(device) if has_norm else None
     
     optimizer = AdamW(pipeline.parameters(), lr=args.lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)

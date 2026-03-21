@@ -62,9 +62,12 @@ def main():
         args.data_dir, split="pretrain_train", time_window=args.time_window, 
         vector_name=args.vector_name, normalize=True, crop_size=128, max_files=args.max_files
     )
+    # Use training stats for validation
+    norm_stats = train_dataset.get_norm_stats()
     test_dataset = VTIFlowDataset(
         args.data_dir, split="pretrain_val", time_window=args.time_window, 
-        vector_name=args.vector_name, normalize=True, crop_size=128, max_files=args.max_files
+        vector_name=args.vector_name, normalize=True, crop_size=128, max_files=args.max_files,
+        norm_stats=norm_stats
     )
     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
