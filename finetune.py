@@ -4,6 +4,7 @@ import glob
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -23,7 +24,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--pos_weight", type=float, default=2.0, help="Positive class weight for paper loss")
+    parser.add_argument("--pos_weight", type=float, default=1.0, help="Positive class weight for paper loss")
+    parser.add_argument("--rec_weight", type=float, default=5.0, help="Weight for reconstruction MSE loss")
     parser.add_argument("--save_dir", type=str, default="./checkpoints_fused_finetune")
     
     args = parser.parse_args()
@@ -85,12 +87,15 @@ def main():
                 gt_mask = (ivd > 0).float().unsqueeze(1)
             
             pred_logits, pred_rec = pipeline(batch)
-            loss = vortex_mae_paper_loss(pred_logits, gt_mask, pos_weight=args.pos_weight)
+            loss_seg = vortex_mae_paper_loss(pred_logits, gt_mask, pos_weight=args.pos_weight)
+            loss_rec = torch.nn.functional.mse_loss(pred_rec, batch)
             
-            loss.backward()
+            total_loss = loss_seg + args.rec_weight * loss_rec
+            
+            total_loss.backward()
             optimizer.step()
             
-            train_loss += loss.item()
+            train_loss += total_loss.item()
             train_iou += calculate_iou(torch.sigmoid(pred_logits), gt_mask).item()
             train_psnr += get_psnr(pred_rec, batch).item()
             
@@ -120,7 +125,7 @@ def main():
         
         print(f"Epoch {epoch} | Loss: {train_loss/len(train_loader):.4f} | "
               f"Train IoU: {avg_train_iou:.4f} | Val IoU: {avg_val_iou:.4f} | "
-              f"Rec PSNR: {avg_train_psnr:.2f}dB")
+              f"Train PSNR: {avg_train_psnr:.2f}dB | Val PSNR: {avg_val_psnr:.2f}dB")
         
         # Save Best
         if avg_val_iou > best_val_iou:

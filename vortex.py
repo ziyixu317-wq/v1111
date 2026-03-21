@@ -87,7 +87,7 @@ def calculate_ivd(u):
     
     return ivd_field
 
-def vortex_mae_paper_loss(pred_logits, target_mask, alpha=1.0, beta=1.0, pos_weight=2.0):
+def vortex_mae_paper_loss(pred_logits, target_mask, alpha=1.0, beta=1.0, pos_weight=1.0):
     """
     Paper-Consistent Loss (Eq. 20-22) with optional pos_weight for sparsity.
     Combines Weighted BCE (Logical) and MSE (Geometric) supervision.

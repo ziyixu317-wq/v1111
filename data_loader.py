@@ -139,37 +139,30 @@ class VTIFlowDataset(Dataset):
             raise FileNotFoundError(f"No .vti files in {data_dir}")
             
         num_total = len(self.all_files)
-        # Small dataset logic (8:2 split)
-        if num_total < 12:
-            num_train = int(num_total * 0.8)
-            if split in ("train", "pretrain_train", "finetune_train"):
-                self.files = self.all_files[:num_train]
-            else:
-                self.files = self.all_files[num_train:]
+        # Consistent 80/20 split for all dataset sizes
+        num_train = int(num_total * 0.8)
+        if split in ("train", "pretrain_train", "finetune_train"):
+            self.files = self.all_files[:num_train]
         else:
-            # Standard split logic (Paper-like)
-            if split in ("train", "pretrain_train", "finetune_train"):
-                self.files = self.all_files[:int(num_total * 0.7)]
-            else:
-                self.files = self.all_files[int(num_total * 0.7):]
+            self.files = self.all_files[num_train:]
         
         self.do_crop = split not in ("inference", "test")
 
-        # 2. Pre-load and Calculate Normalization (Min-Max)
-        print(f"[{split}] Loading {len(self.files)} files...")
-        self._cache = []
+        # 2. Sequential Scan for Normalization (Min-Max) - Memory Efficient
+        print(f"[{split}] Scanning {len(self.files)} files for Norm Stats...")
+        self._min = np.array([float('inf')] * 3).reshape(1, 3, 1, 1, 1)
+        self._max = np.array([float('-inf')] * 3).reshape(1, 3, 1, 1, 1)
+        
+        # Calculate stats without holding all data in RAM
         for f in self.files:
             vel = read_vti_with_vector(f, self.vector_name) if self.vector_name else read_single_vti(f, self.velocity_names)
-            self._cache.append(vel)
+            # vel: (3, D, H, W)
+            f_min = vel.min(axis=(1, 2, 3)).reshape(1, 3, 1, 1, 1)
+            f_max = vel.max(axis=(1, 2, 3)).reshape(1, 3, 1, 1, 1)
+            self._min = np.minimum(self._min, f_min)
+            self._max = np.maximum(self._max, f_max)
             
-        if self.normalize and len(self._cache) > 0:
-            all_arr = np.stack(self._cache, axis=0) # (N, 3, D, H, W)
-            self._min = all_arr.min(axis=(0, 2, 3, 4), keepdims=True)
-            self._max = all_arr.max(axis=(0, 2, 3, 4), keepdims=True)
-        else:
-            self._min, self._max = 0.0, 1.0
-
-        self._num_sequences = max(1, (len(self._cache) - self.time_window) // self.stride + 1)
+        self._num_sequences = max(1, (len(self.files) - self.time_window) // self.stride + 1)
 
     def __len__(self) -> int:
         return self._num_sequences
@@ -179,8 +172,9 @@ class VTIFlowDataset(Dataset):
         end = start + self.time_window
         frames = []
         
-        for i in range(start, min(end, len(self._cache))):
-            vel = self._cache[i].copy()
+        for i in range(start, min(end, len(self.files))):
+            f = self.files[i]
+            vel = read_vti_with_vector(f, self.vector_name) if self.vector_name else read_single_vti(f, self.velocity_names)
             # Per-channel Min-Max
             if self.normalize:
                 vel = (vel - self._min[0]) / (self._max[0] - self._min[0] + 1e-8)
@@ -221,7 +215,9 @@ class VTIFlowDataset(Dataset):
 
     @property
     def spatial_shape(self) -> Tuple[int, int, int]:
-        return self._cache[0].shape[1:]
+        # Peek at first file for metadata
+        vel = read_vti_with_vector(self.files[0], self.vector_name) if self.vector_name else read_single_vti(self.files[0], self.velocity_names)
+        return vel.shape[1:]
 
     @property
     def data_mean(self) -> np.ndarray:

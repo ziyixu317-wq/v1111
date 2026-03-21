@@ -31,8 +31,12 @@ def main():
     print(f"Using device: {device}")
 
     # 1. Prepare files
-    files = sorted(glob.glob(os.path.join(args.data_path, "*.vti"))) if os.path.isdir(args.data_path) else [args.data_path]
-    if not files: return
+    all_files = sorted(glob.glob(os.path.join(args.data_path, "*.vti"))) if os.path.isdir(args.data_path) else [args.data_path]
+    if not all_files: return
+    
+    # Process only first 3 as requested to prevent huge storage usage
+    files = all_files[:3]
+    print(f"Found {len(all_files)} files. Limiting inference to the first {len(files)} files as requested.")
     
     # 2. Load Checkpoint (Min-Max support)
     print(f"Loading Checkpoint from {args.checkpoint}...")
