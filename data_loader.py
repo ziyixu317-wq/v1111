@@ -154,8 +154,8 @@ class VTIFlowDataset(Dataset):
 
         # 2. Sequential Scan for Normalization (Min-Max) - Memory Efficient
         print(f"[{split}] Scanning {len(self.files)} files for Norm Stats...")
-        self._min = np.array([float('inf')] * 3).reshape(1, 3, 1, 1, 1)
-        self._max = np.array([float('-inf')] * 3).reshape(1, 3, 1, 1, 1)
+        self._min = np.array([float('inf')] * 3, dtype=np.float32).reshape(1, 3, 1, 1, 1)
+        self._max = np.array([float('-inf')] * 3, dtype=np.float32).reshape(1, 3, 1, 1, 1)
         
         # Calculate stats without holding all data in RAM
         for f in self.files:
@@ -215,7 +215,7 @@ class VTIFlowDataset(Dataset):
             if pad_d > 0 or pad_h > 0 or pad_w > 0:
                 data = np.pad(data, ((0,0), (0,pad_d), (0,pad_h), (0,pad_w)), mode='constant')
         
-        return torch.from_numpy(data)
+        return torch.from_numpy(data).float()
 
     @property
     def spatial_shape(self) -> Tuple[int, int, int]:

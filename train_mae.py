@@ -31,7 +31,7 @@ def main():
     parser.add_argument("--lambda_div", type=float, default=0.1, help="Weight for Divergence penalty loss")
     parser.add_argument("--time_window", type=int, default=1, help="Time window size (set to 1 for 3D spatial MAE, >1 for Spatio-temporal)")
     parser.add_argument("--vector_name", type=str, default=None, help="Name of vector array in VTI")
-    parser.add_argument("--save_dir", type=str, default="./checkpoints", help="Directory to save checkpoints")
+    parser.add_argument("--save_dir", type=str, default="./checkpoints_fusion", help="Directory to save checkpoints")
     parser.add_argument("--max_files", type=int, default=None, help="Limit number of files for pre-training")
     
     args = parser.parse_args()
@@ -106,7 +106,7 @@ def main():
         total_train_loss, total_mse, total_div, total_train_psnr = 0.0, 0.0, 0.0, 0.0
         
         for batch_idx, volume in enumerate(train_loader):
-            volume = volume.to(device)
+            volume = volume.to(device).float()
             optimizer.zero_grad()
             
             # Forward pass
@@ -132,7 +132,7 @@ def main():
         total_test_loss, total_test_psnr = 0.0, 0.0
         with torch.no_grad():
             for volume in test_loader:
-                volume = volume.to(device)
+                volume = volume.to(device).float()
                 x_rec, mask, _ = pipeline(volume)
                 loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
                 total_test_loss += loss.item()

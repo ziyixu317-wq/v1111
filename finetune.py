@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--pos_weight", type=float, default=1.0, help="Positive class weight for paper loss")
     parser.add_argument("--rec_weight", type=float, default=5.0, help="Weight for reconstruction MSE loss")
-    parser.add_argument("--save_dir", type=str, default="./checkpoints_fused_finetune")
+    parser.add_argument("--save_dir", type=str, default="./checkpoints_finetune")
     parser.add_argument("--max_files", type=int, default=None, help="Limit number of files for fine-tuning")
     
     args = parser.parse_args()
@@ -75,7 +75,7 @@ def main():
         train_loss, train_iou, train_psnr = 0.0, 0.0, 0.0
         
         for batch in tqdm(train_loader, desc=f"Epoch {epoch} [Train]"):
-            batch = batch.to(device)
+            batch = batch.to(device).float()
             optimizer.zero_grad()
             
             # GT IVD
@@ -107,7 +107,7 @@ def main():
         val_iou, val_psnr = 0.0, 0.0
         with torch.no_grad():
             for batch in val_loader:
-                batch = batch.to(device)
+                batch = batch.to(device).float()
                 if has_norm:
                     u_phys = batch * (p_max - p_min + 1e-8) + p_min
                 else:
