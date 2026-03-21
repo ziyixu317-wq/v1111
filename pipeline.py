@@ -30,6 +30,6 @@ class FlowVortexFusionPipeline(nn.Module):
             ivd_pred = calculate_ivd(x_rec)
             return x_rec, mask, ivd_pred
         else:
-            # Segmentation mode
-            seg_mask = self.fused_model(x)
-            return seg_mask
+            # Segmentation mode: now returns (seg_logits, x_rec)
+            seg_mask, x_rec = self.fused_model(x)
+            return seg_mask, x_rec

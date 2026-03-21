@@ -129,7 +129,8 @@ class MAE3D_Fusion(nn.Module):
             return rec, mask_pixel
         else:
             seg = self.head_seg(z)
-            return seg # Return raw logits for BCEWithLogitsLoss stability
+            rec = self.head_rec(z) # Also return reconstruction for PSNR monitor
+            return seg, rec
 
     def _encoder_forward_masked(self, x):
         outs = []

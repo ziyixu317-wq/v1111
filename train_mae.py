@@ -94,13 +94,18 @@ def main():
     optimizer = AdamW(pipeline.parameters(), lr=args.lr, weight_decay=0.05)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
     
+    def get_psnr(img1, img2):
+        mse = torch.mean((img1 - img2) ** 2)
+        if mse == 0: return 100.0
+        return -10.0 * torch.log10(mse)
+
     # 3. Training Loop
     best_test_loss = float('inf')
     print("Starting Pre-training...")
     
     for epoch in range(1, args.epochs + 1):
         pipeline.train()
-        total_train_loss, total_mse, total_div = 0.0, 0.0, 0.0
+        total_train_loss, total_mse, total_div, total_train_psnr = 0.0, 0.0, 0.0, 0.0
         
         for batch_idx, volume in enumerate(train_loader):
             volume = volume.to(device)
@@ -118,26 +123,30 @@ def main():
             total_train_loss += loss.item()
             total_mse += mse_loss.item()
             total_div += div_loss.item()
+            total_train_psnr += get_psnr(x_rec, volume).item()
             
         scheduler.step()
         avg_train_loss = total_train_loss / len(train_loader)
+        avg_train_psnr = total_train_psnr / len(train_loader)
         
         # Validation
         pipeline.eval()
-        total_test_loss = 0.0
+        total_test_loss, total_test_psnr = 0.0, 0.0
         with torch.no_grad():
             for volume in test_loader:
                 volume = volume.to(device)
                 x_rec, mask, _ = pipeline(volume)
                 loss, _, _ = pi_mae_loss(x_rec, volume, mask, lambda_div=args.lambda_div)
                 total_test_loss += loss.item()
+                total_test_psnr += get_psnr(x_rec, volume).item()
                 
         avg_test_loss = total_test_loss / len(test_loader)
+        avg_test_psnr = total_test_psnr / len(test_loader)
         
         print(f"Epoch [{epoch}/{args.epochs}] | "
               f"LR: {scheduler.get_last_lr()[0]:.2e} | "
-              f"Train Loss: {avg_train_loss:.4f} (MSE: {total_mse/len(train_loader):.4f}, Div: {total_div/len(train_loader):.4f}) | "
-              f"Test Loss: {avg_test_loss:.4f}")
+              f"Loss: {avg_test_loss:.4f} | PSNR: {avg_test_psnr:.2f}dB | "
+              f"Train MSE: {total_mse/len(train_loader):.4f}")
               
         # Save Checkpoint
         if avg_test_loss < best_test_loss:

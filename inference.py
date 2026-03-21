@@ -92,8 +92,10 @@ def main():
                             rec, _, _ = pipeline(patch)
                             full_rec[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += rec[:, :, :p_d, :p_h, :p_w]
                         else:
-                            logits = pipeline(patch)
+                            logits, rec = pipeline(patch)
                             full_logits[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += logits[:, :, :p_d, :p_h, :p_w]
+                            if full_rec is not None:
+                                full_rec[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += rec[:, :, :p_d, :p_h, :p_w]
                         full_count[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += 1
         
         # 4. Post-process & Save
