@@ -48,12 +48,12 @@ def main():
         
     print(f"Found {len(all_vti_files)} total .vti files in directory.")
     
-    # 按照 30% 训练集, 5% 验证集 划分 (总数据的前 35%)
+    # 后端 VTIFlowDataset 默认采用 80/20 比例划分训练与验证集
     num_total = len(all_vti_files)
-    num_train = int(num_total * 0.3)
-    num_eval = int(num_total * 0.05)
+    num_train = int(num_total * 0.8)
+    num_eval = num_total - num_train
     
-    print(f"Splitting {num_total} timesteps: Train: {num_train} (30%) | Eval: {num_eval} (5%)")
+    print(f"Dataset partitioning (80/20): Train: {num_train} | Eval: {num_eval}")
     
     train_files = all_vti_files[:num_train]
     test_files = all_vti_files[num_train : num_train + num_eval]
