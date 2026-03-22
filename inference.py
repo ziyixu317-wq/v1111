@@ -91,16 +91,19 @@ def main():
                     if pad_d > 0 or pad_h > 0 or pad_w > 0:
                         patch = torch.nn.functional.pad(patch, (0, pad_w, 0, pad_h, 0, pad_d))
                     
-                    with torch.no_grad():
-                        if args.mode == 'pretrain':
-                            rec, _, _ = pipeline(patch)
-                            full_rec[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += rec[:, :, :p_d, :p_h, :p_w]
-                        else:
-                            logits, rec = pipeline(patch)
-                            full_logits[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += logits[:, :, :p_d, :p_h, :p_w]
-                            if full_rec is not None:
-                                full_rec[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += rec[:, :, :p_d, :p_h, :p_w]
+                        # Forward (Returns: seg_logits, rec_vol, binary_logits)
+                        logits, rec, binary_logits = pipeline(patch) 
+                        
+                        # Unpad and accumulate
+                        # seg_logits: (1, 1, win, win, win)
+                        # binary_logits: (1, 1, win/4, win/4, win/4)
+                        
+                        logits = logits[:, :, :p_d, :p_h, :p_w]
+                        full_logits[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += logits
                         full_count[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += 1
+
+                        if full_rec is not None:
+                            full_rec[:, :, d_s:d_e, h_s:h_e, w_s:w_e] += rec[:, :, :p_d, :p_h, :p_w]
         
         # 4. Post-process & Save
         pred_prob = (full_logits / torch.clamp(full_count, min=1.0)).sigmoid()
@@ -128,8 +131,16 @@ def main():
                 rec_v = rec_v * std[0].cpu().numpy() + mean[0].cpu().numpy()
             mesh.point_data["Reconstructed_Velocity"] = np.stack([rec_v[0].flatten(order='C'), rec_v[1].flatten(order='C'), rec_v[2].flatten(order='C')], axis=1)
             
-        mesh.point_data["Pred_Prob_Map"] = (full_logits[0,0]/full_count[0,0]).sigmoid().cpu().numpy().flatten(order='C')
-        mesh.point_data["Binary_Selection"] = p_mask.flatten(order='C')
+        mesh.point_data["Pred_Prob_Map"] = pred_prob[0,0].cpu().numpy().flatten(order='C')
+        mesh.point_data["IVD_Mask"] = p_mask.flatten(order='C')
+        
+        # Patch-level Binary Selection (from IVD mask downsampled)
+        # Or if we want to show the model's patch head, we could have accumulated it too.
+        # For simplicity and to match the 'grid' look of binary selection, 
+        # let's generate it from the smoothed voxel mask to show "active patches".
+        binary_grid = torch.nn.functional.max_pool3d(torch.from_numpy(p_mask).unsqueeze(0).unsqueeze(0), 4, stride=4)
+        binary_grid = torch.nn.functional.interpolate(binary_grid, size=(D, H, W), mode='nearest')[0,0].numpy()
+        mesh.point_data["Binary_Selection"] = binary_grid.flatten(order='C')
         
         gt_ivd = calculate_ivd(tensor_in).squeeze(0).cpu().numpy()
         mesh.point_data["GT_IVD_Mask"] = (gt_ivd > 0).astype(np.float32).flatten(order='C')

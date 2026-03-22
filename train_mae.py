@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--data_dir", type=str, required=True, help="Path to the directory containing .vti files")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
     parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=4e-4, help="Learning rate (Paper consistent)")
     parser.add_argument("--mask_ratio", type=float, default=0.75, help="Masking ratio (0.0 to 1.0)")
     parser.add_argument("--lambda_div", type=float, default=0.1, help="Weight for Divergence penalty loss")
     parser.add_argument("--time_window", type=int, default=1, help="Time window size (set to 1 for 3D spatial MAE, >1 for Spatio-temporal)")
@@ -85,15 +85,16 @@ def main():
         patch_size=(4, 4, 4), # Synchronized with paper
         in_chans=C,
         embed_dim=48, 
-        depths=[2, 2, 6, 2], 
+        depths=[2, 2, 18, 2], 
         num_heads=[3, 6, 12, 24], 
         window_size=(4, 4, 4),
         mask_ratio=args.mask_ratio
     )
     
     pipeline = pipeline.to(device)
+    from torch.optim.lr_scheduler import StepLR
     optimizer = AdamW(pipeline.parameters(), lr=args.lr, weight_decay=0.05)
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
+    scheduler = StepLR(optimizer, step_size=100, gamma=0.8)
     
     def get_psnr(img1, img2):
         mse = torch.mean((img1 - img2) ** 2)

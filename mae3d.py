@@ -53,14 +53,21 @@ class MAE3D_Fusion(nn.Module):
         )
         
         # Final Task Heads
-        # Use Upsample + Conv3d to match patch scale expansion
+        # Improved head_seg with extra smoothing layers to reduce tiling
+        self.head_seg = nn.Sequential(
+            nn.Conv3d(embed_dim, embed_dim, kernel_size=3, padding=1),
+            nn.InstanceNorm3d(embed_dim),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=patch_size, mode='trilinear', align_corners=False),
+            nn.Conv3d(embed_dim, out_chans, kernel_size=3, padding=1)
+        )
+        # Patch-level Binary Selection Head (Low resolution)
+        self.head_binary = nn.Sequential(
+            nn.Conv3d(embed_dim, 1, kernel_size=3, padding=1)
+        )
         self.head_rec = nn.Sequential(
             nn.Upsample(scale_factor=patch_size, mode='trilinear', align_corners=False),
             nn.Conv3d(embed_dim, in_chans, kernel_size=3, padding=1)
-        )
-        self.head_seg = nn.Sequential(
-            nn.Upsample(scale_factor=patch_size, mode='trilinear', align_corners=False),
-            nn.Conv3d(embed_dim, out_chans, kernel_size=3, padding=1)
         )
 
     def forward(self, x):
@@ -129,8 +136,9 @@ class MAE3D_Fusion(nn.Module):
             return rec, mask_pixel
         else:
             seg = self.head_seg(z)
-            rec = self.head_rec(z) # Also return reconstruction for PSNR monitor
-            return seg, rec
+            binary = self.head_binary(z) 
+            rec = self.head_rec(z)
+            return seg, rec, binary
 
     def _encoder_forward_masked(self, x):
         outs = []

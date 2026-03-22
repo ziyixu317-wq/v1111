@@ -14,7 +14,7 @@ class FlowVortexFusionPipeline(nn.Module):
         if not mae_kwargs:
             mae_kwargs = dict(
                 patch_size=(4, 4, 4), in_chans=3, out_chans=1,
-                embed_dim=48, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24], 
+                embed_dim=48, depths=[2, 2, 18, 2], num_heads=[3, 6, 12, 24], 
                 window_size=(4, 4, 4), mask_ratio=0.75,
                 use_helmholtz=True  # Enabled for Helmholtz-Hodge decomposition
             )
@@ -30,6 +30,6 @@ class FlowVortexFusionPipeline(nn.Module):
             ivd_pred = calculate_ivd(x_rec)
             return x_rec, mask, ivd_pred
         else:
-            # Segmentation mode: now returns (seg_logits, x_rec)
-            seg_mask, x_rec = self.fused_model(x)
-            return seg_mask, x_rec
+            # Segmentation mode: returns (seg_logits, rec_vol, binary_logits)
+            seg_mask, x_rec, binary_mask = self.fused_model(x)
+            return seg_mask, x_rec, binary_mask

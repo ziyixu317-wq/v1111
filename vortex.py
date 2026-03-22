@@ -87,10 +87,20 @@ def calculate_ivd(u):
     
     return ivd_field
 
-def vortex_mae_paper_loss(pred_logits, target_mask, alpha=1.0, beta=1.0, pos_weight=1.0):
+def dice_loss(pred, target, smooth=1e-6):
     """
-    Paper-Consistent Loss (Eq. 20-22) with optional pos_weight for sparsity.
-    Combines Weighted BCE (Logical) and MSE (Geometric) supervision.
+    Dice loss for sparse binary segmentation.
+    pred: (B, 1, D, H, W) probabilities
+    target: (B, 1, D, H, W) binary mask
+    """
+    intersection = (pred * target).sum()
+    union = pred.sum() + target.sum()
+    return 1 - (2. * intersection + smooth) / (union + smooth)
+
+def vortex_mae_paper_loss(pred_logits, target_mask, alpha=1.0, beta=1.0, gamma=1.0, pos_weight=5.0):
+    """
+    Paper-Consistent Loss (Eq. 20-22) with optional pos_weight and Dice Loss.
+    Combines Weighted BCE (Logical), MSE (Geometric), and Dice (Sparsity).
     """
     # 1. Weighted BCE (Eq. 20)
     weight = torch.tensor([pos_weight], device=pred_logits.device)
@@ -99,8 +109,11 @@ def vortex_mae_paper_loss(pred_logits, target_mask, alpha=1.0, beta=1.0, pos_wei
     # 2. MSE / L2 Loss (Eq. 21)
     pred_prob = torch.sigmoid(pred_logits)
     mse = F.mse_loss(pred_prob, target_mask)
+
+    # 3. Dice Loss for sparsity
+    dice = dice_loss(pred_prob, target_mask)
     
-    return alpha * bce + beta * mse
+    return alpha * bce + beta * mse + gamma * dice
 
 def calculate_iou(pred_mask, gt_mask, threshold=0.5):
     """

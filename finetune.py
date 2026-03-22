@@ -23,8 +23,8 @@ def main():
     parser.add_argument("--pretrained_ckpt", type=str, required=True)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--pos_weight", type=float, default=1.0, help="Positive class weight for paper loss")
+    parser.add_argument("--lr", type=float, default=4e-4, help="Learning rate (Paper consistent)")
+    parser.add_argument("--pos_weight", type=float, default=5.0, help="Positive class weight for paper loss")
     parser.add_argument("--rec_weight", type=float, default=5.0, help="Weight for reconstruction MSE loss")
     parser.add_argument("--save_dir", type=str, default="./checkpoints_finetune")
     parser.add_argument("--max_files", type=int, default=None, help="Limit number of files for fine-tuning")
@@ -58,8 +58,9 @@ def main():
     pipeline.to(device)
     pipeline.load_state_dict(ckpt['model_state_dict'], strict=False)
     
+    from torch.optim.lr_scheduler import StepLR
     optimizer = AdamW(pipeline.parameters(), lr=args.lr)
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
+    scheduler = StepLR(optimizer, step_size=100, gamma=0.8)
     
     # PSNR Helper (Inputs are [0, 1] normalized)
     def get_psnr(img1, img2):
@@ -79,7 +80,7 @@ def main():
             batch = batch.to(device).float()
             optimizer.zero_grad()
             
-            # GT IVD
+            # GT Generation
             with torch.no_grad():
                 if has_norm:
                     u_phys = batch * (p_max - p_min + 1e-8) + p_min
@@ -87,12 +88,25 @@ def main():
                     u_phys = batch
                 ivd = calculate_ivd(u_phys)
                 gt_mask = (ivd > 0).float().unsqueeze(1)
+                
+                # Patch-level GT (Binary Selection) via Max Pool
+                # We use the same patch_size = (4, 4, 4)
+                gt_binary = F.max_pool3d(gt_mask, kernel_size=4, stride=4)
             
-            pred_logits, pred_rec = pipeline(batch)
+            pred_logits, pred_rec, pred_binary = pipeline(batch)
+            
+            # 1. Voxel-level loss (IVD Segmentation)
             loss_seg = vortex_mae_paper_loss(pred_logits, gt_mask, pos_weight=args.pos_weight)
-            loss_rec = torch.nn.functional.mse_loss(pred_rec, batch)
             
-            total_loss = loss_seg + args.rec_weight * loss_rec
+            # 2. Patch-level loss (Binary Selection)
+            # Use fixed pos_weight=2.0 for patch-level as it's less sparse than voxel-level
+            loss_binary = F.binary_cross_entropy_with_logits(pred_binary, gt_binary, 
+                                                            pos_weight=torch.tensor([2.0], device=device))
+            
+            # 3. Reconstruction loss
+            loss_rec = F.mse_loss(pred_rec, batch)
+            
+            total_loss = loss_seg + 0.5 * loss_binary + args.rec_weight * loss_rec
             
             total_loss.backward()
             optimizer.step()
@@ -116,7 +130,7 @@ def main():
                 ivd = calculate_ivd(u_phys)
                 gt_mask = (ivd > 0).float().unsqueeze(1)
                 
-                pred_logits, pred_rec = pipeline(batch)
+                pred_logits, pred_rec, pred_binary = pipeline(batch)
                 val_iou += calculate_iou(torch.sigmoid(pred_logits), gt_mask).item()
                 val_psnr += get_psnr(pred_rec, batch).item()
         
