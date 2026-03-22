@@ -40,7 +40,7 @@ def main():
     ckpt = torch.load(args.pretrained_ckpt, map_location=device)
     
     has_norm = 'min' in ckpt
-    norm_stats = (ckpt['min'].numpy(), ckpt['max'].numpy()) if has_norm else None
+    norm_stats = (ckpt['min'].cpu().numpy(), ckpt['max'].cpu().numpy()) if has_norm else None
     p_min = ckpt['min'].to(device) if has_norm else None
     p_max = ckpt['max'].to(device) if has_norm else None
     
